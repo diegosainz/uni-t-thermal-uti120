@@ -90,7 +90,7 @@ side effects. Review it carefully before using it for anything important.
 - **3D surface plot**: interactive OpenGL 3D view where pixel height = temperature (`3`)
 - **Auto-range lock**: lock color scale to a fixed range (`L`)
 - **Isotherm overlay**: highlight pixels above/below a configurable temperature threshold
-- **Audio alarm**: configurable high/low thresholds with visual and audible alerts, selectable temperature source
+- **Audio alarm**: configurable high/low thresholds with hysteresis deadband, visual and audible alerts, selectable temperature source
 - **Adjustable brightness, contrast, flip, and rotation**
 
 ### Region of Interest (ROI)
@@ -105,10 +105,10 @@ side effects. Review it carefully before using it for anything important.
 - **Temperature-over-time graph** with CSV export
 
 ### Image Processing
-Dark frame NUC, per-pixel gain correction, bad pixel replacement, stripe removal, temporal noise filter, and automatic shutter calibration. See [docs/TECHNICAL.md](docs/TECHNICAL.md) for details.
+Dark frame NUC, per-pixel gain correction, bad pixel replacement, stripe removal, temporal noise filter, and automatic shutter calibration with countdown timer. See [docs/TECHNICAL.md](docs/TECHNICAL.md) for details.
 
 ### Sidebar Controls
-Palette selector, emissivity presets + slider, lock range toggle, and live stats (center/max/min/FPA temperatures). Collapsible sections for image adjustments, isotherm, alarm, camera, and capture controls.
+Palette selector, emissivity presets + slider, lock range toggle, and live stats (center/max/min/FPA temperatures, calibration countdown). Collapsible sections for image adjustments, isotherm, alarm, camera, and capture controls.
 
 ## Quick Start
 

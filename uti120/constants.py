@@ -24,6 +24,7 @@ BULK_TIMEOUT_MS = 13  # APK default per-chunk timeout
 BULK_MAX_ITERS = (FRAME_SIZE // BULK_CHUNK_SIZE) + 2
 
 # Frame header fields (short offsets)
+HDR_FRAME_COUNTER = 1
 HDR_SHUTTER_TEMP_START = 8
 HDR_SHUTTER_TEMP_RT = 9
 HDR_LENS_TEMP = 10
@@ -91,6 +92,7 @@ MAX_PROBES = 10                   # maximum pinned temperature probes
 # Alarm
 ALARM_TEMP_MIN = -20
 ALARM_TEMP_MAX = 400
+ALARM_HYSTERESIS_DEFAULT = 0.5
 ALARM_SOURCES = [
     ("Center", "center"),
     ("Global MAX", "global_max"),

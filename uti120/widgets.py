@@ -54,7 +54,7 @@ class ThermalWidget(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setMinimumSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        self.setMinimumSize(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -620,7 +620,7 @@ class MosaicWidget(QWidget):
     def __init__(self, thermal_widget: ThermalWidget, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._thermal: ThermalWidget = thermal_widget  # single source of truth
-        self.setMinimumSize(DISPLAY_WIDTH, DISPLAY_HEIGHT)
+        self.setMinimumSize(DISPLAY_WIDTH // 2, DISPLAY_HEIGHT // 2)
         self.setMouseTracking(True)
         self._qimages: list[QImage | None] = [None] * len(PALETTES)
         self._palette_names: list[str] = [name for name, _ in PALETTES]

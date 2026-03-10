@@ -177,7 +177,7 @@ class CameraThread(QThread):
                 continue
 
             # Auto-recalibration
-            action = self.shutter_handler.check(self.processor.fpa_temp)
+            action = self.shutter_handler.check(self.processor.fpa_temp, self.processor.frame_counter)
             if action == 'nuc':
                 self.status_message.emit(f"Auto-NUC (FPA={self.processor.fpa_temp:.2f}°C)")
                 self.camera.trigger_shutter()

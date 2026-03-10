@@ -7,9 +7,12 @@ shutter/NUC operations when drift exceeds time-scaled thresholds.
 
 from __future__ import annotations
 
+import logging
 import time
 
 __all__ = ["ShutterHandler"]
+
+logger = logging.getLogger(__name__)
 
 
 class ShutterHandler:
@@ -32,6 +35,7 @@ class ShutterHandler:
     NUC_COOLDOWN = 30.0         # seconds between NUC operations
     PERIODIC_INTERVAL = 60.0    # seconds for periodic shutter (after 6 min)
     PERIODIC_ENABLE_TIME = 360.0  # enable periodic timer after 6 min
+    WARMUP_FRAME_THRESHOLD = 3600  # ~6 min at 10 FPS: camera already warm
 
     def __init__(self) -> None:
         self._start_time = time.time()
@@ -49,11 +53,12 @@ class ShutterHandler:
         # Should not reach here, but fallback to tightest
         return self.THRESHOLDS[-1][1], self.THRESHOLDS[-1][2]
 
-    def check(self, fpa_temp_celsius: float) -> str | None:
+    def check(self, fpa_temp_celsius: float, frame_counter: int = 0) -> str | None:
         """Check if recalibration is needed based on FPA temperature drift.
 
         Args:
             fpa_temp_celsius: Current FPA temperature in °C (from processor.fpa_temp)
+            frame_counter: Frame counter from camera header (uint16, wraps at 65535)
 
         Returns:
             'nuc' for full hardware NUC + dark frame refresh,
@@ -68,6 +73,15 @@ class ShutterHandler:
             self._base_fpa_shutter = fpa_temp_celsius
             self._last_shutter_time = now
             self._last_nuc_time = now
+            # If the camera has been running long enough, skip warmup
+            if frame_counter >= self.WARMUP_FRAME_THRESHOLD:
+                self._start_time = now - self.PERIODIC_ENABLE_TIME
+                logger.info("Camera already warm (frame_counter=%d), skipping warmup — "
+                            "using tight thresholds and periodic timer immediately",
+                            frame_counter)
+            else:
+                logger.info("Camera warmup phase (frame_counter=%d, threshold=%d)",
+                            frame_counter, self.WARMUP_FRAME_THRESHOLD)
             return None
 
         shutter_delta, nuc_delta = self._get_thresholds()
@@ -103,3 +117,41 @@ class ShutterHandler:
         now = time.time()
         self._base_fpa_shutter = fpa_temp_celsius
         self._last_shutter_time = now
+
+    def time_until_next(self, fpa_temp_celsius: float) -> dict:
+        """Estimate time/proximity to next calibration trigger.
+
+        Returns dict with:
+            periodic_remaining: seconds until periodic trigger (None if warmup)
+            shutter_drift_pct: current drift as % of shutter threshold
+            nuc_drift_pct: current drift as % of NUC threshold
+        """
+        now = time.time()
+        elapsed = now - self._start_time
+        shutter_delta, nuc_delta = self._get_thresholds()
+
+        # Drift percentages
+        if self._base_fpa_shutter is not None:
+            shutter_drift = abs(fpa_temp_celsius - self._base_fpa_shutter)
+            shutter_pct = (shutter_drift / shutter_delta) * 100
+        else:
+            shutter_pct = 0.0
+
+        if self._base_fpa_nuc is not None:
+            nuc_drift = abs(fpa_temp_celsius - self._base_fpa_nuc)
+            nuc_pct = (nuc_drift / nuc_delta) * 100
+        else:
+            nuc_pct = 0.0
+
+        # Periodic countdown
+        if elapsed >= self.PERIODIC_ENABLE_TIME:
+            since_last = now - self._last_shutter_time
+            periodic_remaining = max(0.0, self.PERIODIC_INTERVAL - since_last)
+        else:
+            periodic_remaining = None
+
+        return {
+            'periodic_remaining': periodic_remaining,
+            'shutter_drift_pct': shutter_pct,
+            'nuc_drift_pct': nuc_pct,
+        }

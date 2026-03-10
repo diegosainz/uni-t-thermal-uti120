@@ -44,6 +44,30 @@ The drift thresholds tighten over time as the camera warms up:
 
 During calibration the image briefly freezes (~0.5s). This is normal and expected.
 
+### Warmup Skip via Frame Counter
+
+The warmup phase (graduated thresholds) exists because a cold microbolometer drifts
+faster as it heats up. However, if the camera has already been powered on for a while
+(e.g. reconnecting to an already-warm camera), repeating the warmup is unnecessary.
+
+On the first frame received, the application reads the **frame counter** from the
+frame header (uint16 at short offset 1, increments each frame). If the counter
+exceeds 3600 (~6 minutes at 10 FPS), the warmup phase is skipped entirely: tight
+thresholds (0.30°C/0.60°C) and the 60-second periodic timer are activated immediately.
+
+Note: the frame counter is uint16 and wraps at 65535 (~109 min at 10 FPS). After a
+wrap the counter could appear low even though the camera is warm, but this only
+affects the initial threshold selection — calibration still works correctly with
+wider thresholds during the first few minutes.
+
+### Calibration Countdown
+
+The Device stats panel shows a `Cal:` label indicating time until the next calibration:
+
+- **`Cal: 45s`** — countdown to periodic calibration (after warmup, or skipped if camera already warm)
+- **`Cal: drift 85%`** — FPA drift is approaching the shutter threshold (≥70%), calibration imminent
+- **`Cal: warmup`** — camera is in the warmup phase, periodic timer not yet active
+
 ## Radiometric .npz File Format
 
 Each screenshot saves a `.npz` file alongside the PNG. The `.npz` format is a standard numpy compressed ZIP archive — internally each array is stored as a `.npy` file (e.g. `temp_map.npy`).

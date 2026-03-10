@@ -15,7 +15,7 @@ from scipy.ndimage import median_filter
 
 from .constants import (
     FRAME_SIZE, FRAME_WIDTH, FRAME_HEIGHT, FRAME_PIXELS, PIXEL_OFFSET,
-    HDR_SHUTTER_TEMP_RT, HDR_LENS_TEMP, HDR_FP_TEMP, HDR_SHUTTER_TEMP_START,
+    HDR_FRAME_COUNTER, HDR_SHUTTER_TEMP_RT, HDR_LENS_TEMP, HDR_FP_TEMP, HDR_SHUTTER_TEMP_START,
     DEFAULT_PALETTE_IDX, DEFAULT_EMISSIVITY, DEFAULT_CONTRAST,
     DEFAULT_AMBIENT_TEMP, FPA_SMOOTH_WINDOW, DEFAULT_TFF_STD,
     TEMP_MARGIN, RANGE_SWITCH_UP_C, RANGE_SWITCH_DOWN_C,
@@ -65,6 +65,7 @@ class FrameProcessor:
         self.mouse_pos = None  # display pixel coords, None until mouse enters
         self._temp_map = None   # last computed temperature map (90x120)
         # Header info from last frame
+        self.frame_counter = 0
         self.shutter_temp = 0.0
         self.shutter_temp_start = 0.0
         self.lens_temp = 0.0
@@ -331,7 +332,9 @@ class FrameProcessor:
         if np.count_nonzero(padding) > len(padding) // 4:
             return None
 
-        # Parse header params (temperatures in raw units / 100 = Celsius)
+        # Parse header params
+        self.frame_counter = int(shorts[HDR_FRAME_COUNTER])
+        # Temperatures in raw units / 100 = Celsius
         if shorts[HDR_SHUTTER_TEMP_START] > 0:
             self.shutter_temp_start = shorts[HDR_SHUTTER_TEMP_START] / 100.0
         if shorts[HDR_SHUTTER_TEMP_RT] > 0:

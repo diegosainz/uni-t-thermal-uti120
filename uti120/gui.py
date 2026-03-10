@@ -19,7 +19,7 @@ from PyQt6.QtWidgets import (
     QLabel, QComboBox, QSlider, QPushButton, QGroupBox, QFrame,
     QMessageBox, QCheckBox, QDialog, QTableWidget,
     QTableWidgetItem, QHeaderView, QDialogButtonBox, QFileDialog,
-    QDoubleSpinBox,
+    QDoubleSpinBox, QSplitter,
 )
 
 from pathlib import Path
@@ -27,7 +27,7 @@ from pathlib import Path
 from .constants import (
     DISPLAY_WIDTH, DISPLAY_HEIGHT, EMISSIVITY_PRESETS, default_save_dir,
     STATS_UPDATE_INTERVAL_MS, DEFAULT_PALETTE_IDX,
-    ALARM_TEMP_MIN, ALARM_TEMP_MAX, ALARM_SOURCES,
+    ALARM_TEMP_MIN, ALARM_TEMP_MAX, ALARM_SOURCES, ALARM_HYSTERESIS_DEFAULT,
 )
 from .palettes import PALETTES
 from .camera_thread import CameraThread
@@ -99,17 +99,16 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 4, 0)
         layout.setSpacing(4)
 
-        # Left column: thermal display + graph panel
-        left_col = QVBoxLayout()
-        left_col.setContentsMargins(0, 0, 0, 0)
-        left_col.setSpacing(0)
+        # Left column: thermal display + graph panel (splitter for resizing)
+        left_col = QSplitter(Qt.Orientation.Vertical)
+        left_col.setChildrenCollapsible(False)
 
         self.thermal = ThermalWidget()
-        left_col.addWidget(self.thermal, stretch=1)
+        left_col.addWidget(self.thermal)
 
         self.mosaic = MosaicWidget(self.thermal)
         self.mosaic.setVisible(False)
-        left_col.addWidget(self.mosaic, stretch=1)
+        left_col.addWidget(self.mosaic)
 
         self._mosaic_active = False
 
@@ -118,12 +117,15 @@ class MainWindow(QMainWindow):
         if HAS_3D:
             self.surface3d = ThermalSurface3D()
             self.surface3d.setVisible(False)
-            left_col.addWidget(self.surface3d, stretch=1)
+            left_col.addWidget(self.surface3d)
 
         self.graph_panel = TemperatureGraphPanel(self.thermal)
-        left_col.addWidget(self.graph_panel, stretch=0)
+        self.graph_panel.setMinimumHeight(60)
+        left_col.addWidget(self.graph_panel)
+        left_col.setStretchFactor(0, 1)  # thermal gets stretch
+        self._left_splitter = left_col
 
-        layout.addLayout(left_col, stretch=1)
+        layout.addWidget(left_col, stretch=1)
 
         # Sidebar
         sidebar = self._build_sidebar()
@@ -160,6 +162,7 @@ class MainWindow(QMainWindow):
         self._alarm_source: str = "center"
         self._alarm_high: float = float(ALARM_TEMP_MAX)
         self._alarm_low: float = float(ALARM_TEMP_MIN)
+        self._alarm_hysteresis: float = ALARM_HYSTERESIS_DEFAULT
         self._alarm_active: bool = False
         self._alarm_sound: QSoundEffect | None = None
         if _HAS_SOUND:
@@ -317,6 +320,16 @@ class MainWindow(QMainWindow):
         self.alarm_low_spin.valueChanged.connect(self._on_alarm_low_changed)
         lay.addWidget(self.alarm_low_spin)
 
+        lay.addWidget(QLabel("Hysteresis"))
+        self.alarm_hyst_spin = QDoubleSpinBox()
+        self.alarm_hyst_spin.setRange(0.0, 20.0)
+        self.alarm_hyst_spin.setValue(ALARM_HYSTERESIS_DEFAULT)
+        self.alarm_hyst_spin.setSingleStep(0.5)
+        self.alarm_hyst_spin.setSuffix(" °C")
+        self.alarm_hyst_spin.setToolTip("Deadband to prevent alarm toggling near threshold")
+        self.alarm_hyst_spin.valueChanged.connect(self._on_alarm_hysteresis_changed)
+        lay.addWidget(self.alarm_hyst_spin)
+
         btn_test_alarm = QPushButton("Test Sound")
         btn_test_alarm.setToolTip("Play the alarm sound for 2 seconds")
         btn_test_alarm.clicked.connect(self._on_test_alarm)
@@ -392,14 +405,18 @@ class MainWindow(QMainWindow):
         sep.setFrameShape(QFrame.Shape.HLine)
         vbox.addWidget(sep)
 
-        self.lbl_center = QLabel("Center: --")
-        self.lbl_max = QLabel("Max: --")
-        self.lbl_min = QLabel("Min: --")
-        self.lbl_fpa = QLabel("FPA: --")
-        self.lbl_range = QLabel("Range: LOW")
+        lbl_header = QLabel("Device")
+        lbl_header.setFont(QFont("monospace", 9, QFont.Weight.Bold))
+        vbox.addWidget(lbl_header)
 
-        for lbl in [self.lbl_center, self.lbl_max, self.lbl_min,
-                     self.lbl_fpa, self.lbl_range]:
+        self.lbl_fpa = QLabel("FPA: --")
+        self.lbl_shutter = QLabel("Shutter: --")
+        self.lbl_lens = QLabel("Lens: --")
+        self.lbl_range = QLabel("Range: LOW")
+        self.lbl_cal = QLabel("Cal: --")
+
+        for lbl in [self.lbl_fpa, self.lbl_shutter, self.lbl_lens,
+                     self.lbl_range, self.lbl_cal]:
             lbl.setFont(QFont("monospace", 9))
             vbox.addWidget(lbl)
 
@@ -539,25 +556,50 @@ class MainWindow(QMainWindow):
 
     def _update_stats(self) -> None:
         proc = self.cam_thread.processor
-        self.lbl_center.setText(f"Center: {proc.center_temp:.1f}°C")
-        self.lbl_max.setText(f"Max:    {proc.max_temp:.1f}°C")
-        self.lbl_min.setText(f"Min:    {proc.min_temp:.1f}°C")
-        self.lbl_fpa.setText(f"FPA:    {proc.fpa_temp:.1f}°C")
+        self.lbl_fpa.setText(f"FPA:     {proc.fpa_temp:.1f}°C")
+        self.lbl_shutter.setText(f"Shutter: {proc.shutter_temp:.1f}°C")
+        self.lbl_lens.setText(f"Lens:    {proc.lens_temp:.1f}°C")
         rng = "HIGH" if proc.active_range == 1 else "LOW"
         self.lbl_range.setText(f"Range:  {rng}")
-        # Alarm check
+        # Calibration countdown
+        info = self.cam_thread.shutter_handler.time_until_next(proc.fpa_temp)
+        drift_pct = info['shutter_drift_pct']
+        periodic = info['periodic_remaining']
+        if drift_pct >= 70:
+            self.lbl_cal.setText(f"Cal:    drift {drift_pct:.0f}%")
+        elif periodic is not None:
+            self.lbl_cal.setText(f"Cal:    {periodic:.0f}s")
+        else:
+            self.lbl_cal.setText(f"Cal:    warmup")
+        # Alarm check (with hysteresis deadband)
         if self._alarm_enabled:
             temp = self._get_alarm_temp()
-            if temp is not None and (temp > self._alarm_high or temp < self._alarm_low):
-                # Build message: source label + temp + which threshold
+            if temp is not None:
                 src_label = {k: lbl for lbl, k in ALARM_SOURCES}.get(self._alarm_source, self._alarm_source)
-                if temp > self._alarm_high:
-                    msg = f"{src_label}: {temp:.1f}°C > {self._alarm_high:.1f}°C"
+                hyst = self._alarm_hysteresis
+                if self._alarm_active:
+                    # Already alarming — clear only when temp returns within deadband
+                    over_high = temp > (self._alarm_high - hyst)
+                    under_low = temp < (self._alarm_low + hyst)
+                    if over_high or under_low:
+                        if temp > self._alarm_high or over_high:
+                            msg = f"{src_label}: {temp:.1f}°C > {self._alarm_high:.1f}°C"
+                        else:
+                            msg = f"{src_label}: {temp:.1f}°C < {self._alarm_low:.1f}°C"
+                        self.thermal._alarm_message = msg
+                    else:
+                        self.thermal._alarm_message = ""
+                        self._set_alarm_active(False)
                 else:
-                    msg = f"{src_label}: {temp:.1f}°C < {self._alarm_low:.1f}°C"
-                self.thermal._alarm_message = msg
-                self._set_alarm_active(True)
-            else:
+                    # Not alarming — trigger at exact thresholds
+                    if temp > self._alarm_high or temp < self._alarm_low:
+                        if temp > self._alarm_high:
+                            msg = f"{src_label}: {temp:.1f}°C > {self._alarm_high:.1f}°C"
+                        else:
+                            msg = f"{src_label}: {temp:.1f}°C < {self._alarm_low:.1f}°C"
+                        self.thermal._alarm_message = msg
+                        self._set_alarm_active(True)
+            elif self._alarm_active:
                 self.thermal._alarm_message = ""
                 self._set_alarm_active(False)
 
@@ -645,6 +687,9 @@ class MainWindow(QMainWindow):
 
     def _on_alarm_low_changed(self, val: float) -> None:
         self._alarm_low = val
+
+    def _on_alarm_hysteresis_changed(self, val: float) -> None:
+        self._alarm_hysteresis = val
 
     def _get_alarm_temp(self) -> float | None:
         """Return the current temperature for the selected alarm source."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import time
 import datetime
 from pathlib import Path
@@ -9,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt, QTimer, QRectF
 from PyQt6.QtGui import QColor, QFont, QPainter, QPen, QPainterPath, QPaintEvent
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QComboBox
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QPushButton, QComboBox, QSplitter
 
 from .constants import FRAME_WIDTH, FRAME_HEIGHT, GRAPH_SAMPLE_INTERVAL_MS, default_save_dir
 
@@ -24,7 +25,7 @@ __all__ = ["TemperatureGraphPanel"]
 class TemperatureGraphPanel(QWidget):
     """Collapsible panel that graphs temperature over time using QPainter."""
 
-    GRAPH_HEIGHT = 150
+    GRAPH_HEIGHT = 250
     WINDOW_SECONDS = 60  # show last 60 seconds of data
 
     # Distinct colors for up to 10 probe lines
@@ -73,6 +74,13 @@ class TemperatureGraphPanel(QWidget):
 
         header_layout.addStretch()
 
+        self._time_combo = QComboBox()
+        self._time_combo.addItems(["30s", "1m", "2m", "5m", "10m"])
+        self._time_combo.setCurrentIndex(1)  # default 1m
+        self._time_combo.setFixedWidth(55)
+        self._time_combo.currentIndexChanged.connect(self._on_time_range_changed)
+        header_layout.addWidget(self._time_combo)
+
         self._source_combo = QComboBox()
         self._source_combo.addItems(["Center", "Mouse", "Selection (ROI)", "Probes"])
         self._source_combo.setFixedWidth(100)
@@ -85,6 +93,9 @@ class TemperatureGraphPanel(QWidget):
 
         self._export_btn = QPushButton("Export CSV")
         self._export_btn.setFixedWidth(80)
+        self._export_btn.setStyleSheet(
+            "QPushButton:disabled { color: #555; }"
+        )
         self._export_btn.setEnabled(False)
         self._export_btn.clicked.connect(self._export_csv)
         header_layout.addWidget(self._export_btn)
@@ -96,7 +107,7 @@ class TemperatureGraphPanel(QWidget):
 
         # --- Graph canvas ---
         self._canvas = QWidget()
-        self._canvas.setFixedHeight(self.GRAPH_HEIGHT)
+        self._canvas.setMinimumHeight(80)
         self._canvas.paintEvent = self._paint_graph
         self._canvas.setVisible(False)
 
@@ -105,7 +116,7 @@ class TemperatureGraphPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(self._header)
-        layout.addWidget(self._canvas)
+        layout.addWidget(self._canvas, stretch=1)
 
         # Sample timer
         self._timer = QTimer()
@@ -126,6 +137,25 @@ class TemperatureGraphPanel(QWidget):
         self._canvas.setVisible(not self._collapsed)
         arrow = "\u25b6" if self._collapsed else "\u25bc"
         self._toggle_btn.setText(f"{arrow} Temperature Graph")
+        # Ask parent splitter to give us space when expanding
+        if not self._collapsed:
+            splitter = self.parent()
+            if isinstance(splitter, QSplitter):
+                sizes = splitter.sizes()
+                total = sum(sizes)
+                graph_h = max(self.GRAPH_HEIGHT, int(total * 0.35))
+                my_idx = splitter.indexOf(self)
+                # Shrink the first visible widget to make room
+                new_sizes = list(sizes)
+                new_sizes[0] = total - graph_h
+                new_sizes[my_idx] = graph_h
+                splitter.setSizes(new_sizes)
+
+    _TIME_RANGE_MAP = [30, 60, 120, 300, 600]
+
+    def _on_time_range_changed(self, index: int) -> None:
+        self.WINDOW_SECONDS = self._TIME_RANGE_MAP[index]
+        self._canvas.update()
 
     def _toggle_recording(self) -> None:
         if self._running:
@@ -283,32 +313,33 @@ class TemperatureGraphPanel(QWidget):
 
         # Choose a Y-axis step that keeps labels ≥20 px apart
         px_per_deg = gh / (v_max - v_min)
-        step = 1
-        for s in [1, 2, 5, 10, 20, 50, 100]:
+        step = 0.2
+        for s in [0.2, 0.5, 1, 2, 5, 10, 20, 50, 100]:
             if s * px_per_deg >= 20:
                 step = s
                 break
         else:
             step = 100
 
-        first_grid = int(v_min / step) * step + step
-        last_grid = int(v_max / step) * step
+        first_grid = math.ceil(v_min / step) * step
+        last_grid = math.floor(v_max / step) * step
 
         # Grid lines
         painter.setPen(QPen(QColor(60, 60, 60), 1, Qt.PenStyle.DotLine))
         deg = first_grid
-        while deg <= last_grid:
+        while deg <= last_grid + step * 0.01:
             y = margin_top + gh - (deg - v_min) / (v_max - v_min) * gh
             painter.drawLine(int(margin_left), int(y),
                              int(margin_left + gw), int(y))
             deg += step
 
         # Y-axis labels
+        _fmt = "{:.0f}°C" if step >= 1 else "{:.1f}°C"
         painter.setPen(QColor(160, 160, 160))
         deg = first_grid
-        while deg <= last_grid:
+        while deg <= last_grid + step * 0.01:
             y = margin_top + gh - (deg - v_min) / (v_max - v_min) * gh
-            painter.drawText(2, int(y + 4), f"{deg}°C")
+            painter.drawText(2, int(y + 4), _fmt.format(round(deg, 1)))
             deg += step
 
         # X-axis labels (every 10s)
