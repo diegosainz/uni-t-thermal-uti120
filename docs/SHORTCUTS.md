@@ -7,7 +7,7 @@ All controls are also available in the sidebar. Press `H` in the viewer to show 
 | Key | Action |
 |-----|--------|
 | `Q` | Quit |
-| `S` | Save screenshot (PNG + radiometric .npz) |
+| `S` | Save screenshot (PNG + 32-bit float °C radiometric TIFF) |
 | `P` | Cycle color palette |
 | `F` | Flip image horizontally |
 | `R` | Rotate image 90° clockwise |

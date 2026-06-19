@@ -16,6 +16,7 @@ dependencies = [
     "PyQt6>=6.5,<7",
     "pyqtgraph>=0.13.4,<1",
     "PyOpenGL>=3.1,<4",
+    "tifffile>=2024.1,<2026",
 ]
 
 [tool.setuptools.packages.find]

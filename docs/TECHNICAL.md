@@ -68,31 +68,106 @@ The Device stats panel shows a `Cal:` label indicating time until the next calib
 - **`Cal: drift 85%`** — FPA drift is approaching the shutter threshold (≥70%), calibration imminent
 - **`Cal: warmup`** — camera is in the warmup phase, periodic timer not yet active
 
-## Radiometric .npz File Format
+## Radiometric TIFF File Format
 
-Each screenshot saves a `.npz` file alongside the PNG. The `.npz` format is a standard numpy compressed ZIP archive — internally each array is stored as a `.npy` file (e.g. `temp_map.npy`).
+Each screenshot saves a radiometric TIFF alongside the PNG. TIFF is the most
+portable cross-vendor radiometric raster format — vendor-specific formats like
+FLIR's R-JPEG, DJI's R-JPG, and various CSV layouts don't open in other
+ecosystems. Standard single-band TIFF, on the other hand, is read by
+ImageJ/Fiji, QGIS, MATLAB, scientific Python, and most photo editors as image
+data.
 
-**Contents:**
+| File | Pixel type | Encoding | Decode |
+|------|-----------|----------|--------|
+| `thermal_{TS}.tif` | float32, single-band | `pixel = T_°C` (direct) | `T_°C = pixel` |
 
-| Key | Type | Shape | Description |
-|-----|------|-------|-------------|
-| `temp_map` | float32/float64 | (90, 120) | Calibrated temperature map in °C. Each element is the temperature of the corresponding pixel after full pipeline processing (NUC, gain correction, bad pixel replacement, lens drift, curve lookup, FPA interpolation, and emissivity correction) |
-| `emissivity` | float | scalar | Surface emissivity value (0.01–1.00) used when the capture was taken |
-| `fpa_temp` | float | scalar | Focal Plane Array sensor temperature in °C at capture time |
+Opens natively in ImageJ/Fiji, QGIS, MATLAB, Metashape, and Pix4D with
+cursor-hover showing °C — no decode step needed.
 
-**Loading in Python:**
+### Metadata layout
+
+**TIFF tag 270 (ImageDescription)** — plain-text ImageJ-compatible key/value
+block. Example:
+
+```
+ImageJ=1.53k
+unit=C
+min=20.13
+max=37.85
+emissivity=0.9500
+ambient_c=22.00
+distance_m=1.000
+fpa_temp_c=37.250
+shutter_temp_c=37.180
+lens_temp_c=37.310
+range=low
+frame_counter=4218
+device=UNI-T UTi120
+software=uti120 v1.0.0
+timestamp=2026-06-19T14:30:22.451+02:00
+```
+
+**TIFF tag 305 (Software)** — `uti120 v<version>`.
+
+**Private tag 65000 (ASCII / JSON)** — full FrameProcessor state snapshot for
+lossless round-trip: emissivity, ambient, distance, all four temperature
+sensors (FPA / shutter / shutter-start / lens), calibration range,
+frame_counter, dark-frame baseline temps, image transform state (flip /
+rotation / brightness / contrast), and encoding formulas. Optional; non-essential
+for third-party tools but lets uti120 reconstruct the capture context exactly.
+
+### Loading in Python
 
 ```python
-import numpy as np
+import tifffile
 
-data = np.load("thermal_20260308_143022.npz")
-temp_map   = data["temp_map"]      # (90, 120) array of temperatures in °C
-emissivity = float(data["emissivity"])
-fpa_temp   = float(data["fpa_temp"])
+temp_map_c = tifffile.imread("thermal_20260619_143022.tif")  # float32, °C
 
-print(f"Min: {temp_map.min():.1f}°C  Max: {temp_map.max():.1f}°C")
-print(f"Emissivity: {emissivity:.2f}  FPA: {fpa_temp:.1f}°C")
+# Read embedded metadata
+with tifffile.TiffFile("thermal_20260619_143022.tif") as tf:
+    desc = tf.pages[0].tags["ImageDescription"].value
+    meta = dict(line.split("=", 1) for line in desc.splitlines() if "=" in line)
+    print(f"Emissivity: {meta['emissivity']}, FPA: {meta['fpa_temp_c']} °C")
 ```
+
+### Loading in ImageJ / Fiji
+
+Drag the file into Fiji — cursor hover shows temperature in °C directly.
+
+### Loading in QGIS
+
+Drag the file in. It loads as a single-band raster with pixel values in °C;
+the identify tool reads off temperatures directly.
+
+### Opening in GIMP / Photoshop / other photo editors
+
+These tools are general-purpose image editors, not thermal viewers — they will
+show the file but probably **look blank**. GIMP assumes float TIFFs are
+normalized to [0, 1]; our pixels are temperatures in °C (e.g. 20.0), all above
+1.0, so GIMP clips everything to white. Use `Colors > Curves` and stretch the
+input range to the actual temperature range to see the scene.
+
+We embed the TIFF-standard `SMinSampleValue` / `SMaxSampleValue` tags (340/341)
+hinting at the true value range. GDAL surfaces them as band statistics, which
+QGIS uses for its default raster styling. Photo-editor support for these tags
+is inconsistent — GIMP, in particular, doesn't auto-stretch based on them. For
+visual inspection in a photo editor, open the PNG instead, or apply the
+stretch manually.
+
+**For visual inspection, open the `.png` file instead** — that's the display
+image with overlays already in 8-bit RGB, which any viewer renders correctly.
+The TIFF is for radiometric analysis tools.
+
+### Compatibility notes
+
+- **FLIR ResearchIR / FLIR Tools**: opens the file as 32-bit grayscale but
+  treats it as raw counts — these tools assume FLIR's own encoding
+  (`T_K = pixel × 0.04`) and will not show correct temperatures. Read pixels
+  with the formula `T_°C = pixel`.
+- **Hikmicro Analyzer / DJI Thermal Analysis Tool**: similar — proprietary
+  encoding expected. Files open as raw grayscale.
+- **MATLAB / scikit-image / Python tifffile**: read into numerical arrays
+  directly; pixel values are already °C.
 
 ## GUI Stack
 

@@ -100,7 +100,7 @@ side effects. Review it carefully before using it for anything important.
 
 ### Recording and Export
 - **Configurable save directory**: defaults to `~/Pictures/UTi120/` (Linux/macOS) or `~/Documents/UTi120/` (Windows)
-- **Radiometric screenshots**: PNG + `.npz` file with raw temperature map, emissivity, and FPA temp ([format details](docs/TECHNICAL.md#radiometric-npz-file-format))
+- **Radiometric screenshots**: PNG + 32-bit float °C single-band TIFF — pixel values are temperatures in °C, opens directly in ImageJ/Fiji, QGIS, MATLAB, Metashape, Pix4D and any other tool that reads standard TIFF rasters ([format details](docs/TECHNICAL.md#radiometric-tiff-file-format))
 - **Video recording** (MP4, 720×540) with all overlays baked in, records any active view
 - **Temperature-over-time graph** with CSV export
 

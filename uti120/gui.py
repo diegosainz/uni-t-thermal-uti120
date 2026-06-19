@@ -834,20 +834,19 @@ class MainWindow(QMainWindow):
         if ready:
             save_dir = self._ensure_save_dir()
             ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
-            fname = str(save_dir / f"thermal_{ts}.png")
+            png_path = save_dir / f"thermal_{ts}.png"
             # Grab the widget with overlay painted on it
             pixmap = widget.grab()
-            pixmap.save(fname)
-            # Save radiometric data (raw temperature map)
+            pixmap.save(str(png_path))
+            # Save radiometric data as a float32-Celsius TIFF
             proc = self.cam_thread.processor
-            msg = f"Screenshot: {fname}"
+            msg = f"Screenshot: {png_path}"
             if proc._temp_map is not None:
-                npz_fname = str(save_dir / f"thermal_{ts}.npz")
-                np.savez_compressed(npz_fname,
-                                    temp_map=proc._temp_map,
-                                    emissivity=proc.emissivity,
-                                    fpa_temp=proc.fpa_temp)
-                msg += f" + {npz_fname}"
+                from .tiff_export import write_radiometric_tiff
+                tif_path = write_radiometric_tiff(
+                    proc, save_dir / f"thermal_{ts}"
+                )
+                msg += f" + {tif_path.name}"
             self.statusBar().showMessage(msg)
 
     def _on_calibration_points(self) -> None:
@@ -905,7 +904,7 @@ class MainWindow(QMainWindow):
             "Double-click to remove nearest probe.\n"
             "Left-drag to select a region.\n"
             "Right-click to clear selection.\n"
-            "Screenshots save PNG + radiometric .npz\n"
+            "Screenshots save PNG + 32-bit float °C radiometric TIFF\n"
             "\n3D Surface Controls:\n"
             "Left-drag\tRotate view\n"
             "Ctrl+drag\tPan view\n"
